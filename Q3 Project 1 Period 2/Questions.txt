@@ -1,3 +1,39 @@
 Questions:
 
 Write as many questions as you can based on the project specs.
+
+1. When is this due? [O]
+
+2. Will I be getting a rare diamond wolverine buck from this? [C] 
+
+3. Are you going to teach us 3d arrays? [C] 
+
+4. How many points is this going to be? [O]
+
+5. Is the maze randomly generated? [C] 
+
+6. Are we going to learns incoordinates? [C] 
+
+7. Are we going to learn outcoordinates? [C] 
+
+8. Will linked lists be involved? [C] 
+
+9. Are we going learn about linked lists? [C] 
+
+10. How much time are we going to have to work on this? [O]
+
+11. Are we going to learn new data structures for this? [C] 
+
+12. Are we going to use new data structures for this? [C] 
+
+13. Will time complexity be a factor in this? [C] 
+
+14. Are visuals neccesary? [C] 
+
+15. Will we be using Big O notation for this? [C] 
+
+16. Do we have to generate the maze? [C] 
+
+
+
+

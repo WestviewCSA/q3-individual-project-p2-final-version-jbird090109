@@ -1,0 +1,10 @@
+Week 1: Make sure I can push and commit changes 
+               Create easy/medium/hard maps showing some understanding of the maps
+               Be able to read and display the map files
+Week 2: Start writing code that works with Queue-based approach
+               Make sure to understand fully how the queue based process works and understand the code as much as possible
+               Start writing code that works with Stack-based approach
+               A stack approach should be easier
+Week 3: Work on errors and debug problems
+Week 4: Start working on optimal method to find the solution
+Week 5: Start working on runtime approach I can use the past projects to help me with this

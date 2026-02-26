@@ -1,6 +1,8 @@
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.util.ArrayList;
+import java.util.LinkedList;
+import java.util.Queue;
 import java.util.Scanner;
 //repush
 public class FileRead {
@@ -48,7 +50,7 @@ public class FileRead {
 				
 	}
 	
-	
+
 	
 	public static ArrayList<String> coordinates(String[][][] a) {
 		System.out.println();
@@ -68,4 +70,32 @@ public class FileRead {
 		}
 		return b;
 	}
+	
+public static ArrayList<String> queueRoute(String[][][] map){
+		ArrayList<String> visited = new ArrayList<String>();
+		Queue<String> queue = new LinkedList<>();
+		int a, b, c = 0;
+		boolean start = false;
+		boolean found = false;
+		
+		for(int i = 0; i < map[0][0].length; i++) {
+			for(int j = 0; j < map[0].length; j++) {
+				for(int k = 0; k < map.length; k++) {
+					if(map[j][k][i].startsWith("W")) {
+						queue.add(map[j][k][i]);
+						a = j;
+						b = k;
+						c = i;
+						
+					}
+				}
+			}
+		}
+		
+		start = true;
+		visited.add(queue.remove());
+		return visited;
+	
+	}
+	
 }

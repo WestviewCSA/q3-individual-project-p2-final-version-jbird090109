@@ -1,9 +1,28 @@
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.util.ArrayList;
+import java.util.LinkedList;
+import java.util.Queue;
 import java.util.Scanner;
-//repush
+
+// repush
 public class FileRead {
+
+    static class Position {
+        int row;
+        int col;
+        int level;
+
+        public Position(int row, int col, int level) {
+            this.row = row;
+            this.col = col;
+            this.level = level;
+        }
+
+        public String toString() {
+            return "(" + row + ", " + col + ", " + level + ")";
+        }
+    }
 
     public static void main(String[] args) {
         if (args.length == 0) {
@@ -17,23 +36,27 @@ public class FileRead {
         if (map != null) {
             printTextMap(map);
             System.out.println();
+
             ArrayList<String> coords = toCoordinateList(map);
             printCoordinateList(coords);
 
-            int[] start = findSymbol(map, 'W');
-            int[] goal = findSymbol(map, '$');
+            Position start = findSymbol(map, 'W');
+            Position goal = findSymbol(map, '$');
 
             if (start != null) {
-                System.out.println("\nStart found at: row=" + start[0] + " col=" + start[1] + " level=" + start[2]);
+                System.out.println("\nStart found at: row=" + start.row + " col=" + start.col + " level=" + start.level);
             } else {
                 System.out.println("\nStart position W not found.");
             }
 
             if (goal != null) {
-                System.out.println("Goal found at: row=" + goal[0] + " col=" + goal[1] + " level=" + goal[2]);
+                System.out.println("Goal found at: row=" + goal.row + " col=" + goal.col + " level=" + goal.level);
             } else {
                 System.out.println("Goal position $ not found.");
             }
+
+            System.out.println();
+            queueRouteSetup(map);
         }
     }
 
@@ -68,7 +91,6 @@ public class FileRead {
                 return null;
             }
 
-            // [row][col][level]
             char[][][] map = new char[height][width][levels];
 
             int startCount = 0;
@@ -154,7 +176,7 @@ public class FileRead {
     }
 
     public static ArrayList<String> toCoordinateList(char[][][] map) {
-        ArrayList<String> coordinates = new ArrayList<>();
+        ArrayList<String> coordinates = new ArrayList<String>();
 
         for (int level = 0; level < map[0][0].length; level++) {
             for (int row = 0; row < map.length; row++) {
@@ -173,16 +195,85 @@ public class FileRead {
         }
     }
 
-    public static int[] findSymbol(char[][][] map, char target) {
+    public static Position findSymbol(char[][][] map, char target) {
         for (int level = 0; level < map[0][0].length; level++) {
             for (int row = 0; row < map.length; row++) {
                 for (int col = 0; col < map[0].length; col++) {
                     if (map[row][col][level] == target) {
-                        return new int[]{row, col, level};
+                        return new Position(row, col, level);
                     }
                 }
             }
         }
         return null;
+    }
+
+    public static void queueRouteSetup(char[][][] map) {
+        Position start = findSymbol(map, 'W');
+
+        if (start == null) {
+            System.out.println("Cannot start route search because W was not found.");
+            return;
+        }
+
+        boolean[][][] visited = new boolean[map.length][map[0].length][map[0][0].length];
+        Queue<Position> queue = new LinkedList<Position>();
+
+        queue.add(start);
+        visited[start.row][start.col][start.level] = true;
+
+        System.out.println("Queue route setup started.");
+        System.out.println("Starting position: " + start);
+
+        if (!queue.isEmpty()) {
+            Position current = queue.remove();
+            System.out.println("Removed from queue: " + current);
+
+            ArrayList<Position> neighbors = getNeighbors(map, current, visited);
+
+            System.out.println("Valid neighbors:");
+            for (int i = 0; i < neighbors.size(); i++) {
+                Position next = neighbors.get(i);
+                queue.add(next);
+                visited[next.row][next.col][next.level] = true;
+                System.out.println(next);
+            }
+
+            System.out.println("Queue size after adding neighbors: " + queue.size());
+        }
+    }
+
+    public static ArrayList<Position> getNeighbors(char[][][] map, Position current, boolean[][][] visited) {
+        ArrayList<Position> neighbors = new ArrayList<Position>();
+
+        // up
+        addNeighbor(map, current.row - 1, current.col, current.level, visited, neighbors);
+        // down
+        addNeighbor(map, current.row + 1, current.col, current.level, visited, neighbors);
+        // left
+        addNeighbor(map, current.row, current.col - 1, current.level, visited, neighbors);
+        // right
+        addNeighbor(map, current.row, current.col + 1, current.level, visited, neighbors);
+
+        return neighbors;
+    }
+
+    public static void addNeighbor(char[][][] map, int row, int col, int level,
+                                   boolean[][][] visited, ArrayList<Position> neighbors) {
+        if (inBounds(map, row, col, level)
+                && !visited[row][col][level]
+                && isWalkable(map[row][col][level])) {
+            neighbors.add(new Position(row, col, level));
+        }
+    }
+
+    public static boolean inBounds(char[][][] map, int row, int col, int level) {
+        return row >= 0 && row < map.length
+                && col >= 0 && col < map[0].length
+                && level >= 0 && level < map[0][0].length;
+    }
+
+    public static boolean isWalkable(char cell) {
+        return cell == '.' || cell == '$' || cell == 'W';
     }
 }

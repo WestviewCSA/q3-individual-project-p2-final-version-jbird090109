@@ -8,6 +8,7 @@ import java.util.Stack;
 
 public class FileRead {
 
+    // custom exceptions for different error types
     static class IllegalCommandLineInputsException extends Exception {
         public IllegalCommandLineInputsException(String message) {
             super(message);
@@ -32,6 +33,7 @@ public class FileRead {
         }
     }
 
+    // holds a position in the map (row, column, and which level/floor)
     static class Position {
         int row;
         int col;
@@ -44,6 +46,7 @@ public class FileRead {
         }
     }
 
+    // all the settings from command line args
     static class Config {
         boolean useQueue = false;
         boolean useStack = false;
@@ -55,6 +58,7 @@ public class FileRead {
         String fileName = null;
     }
 
+    // stores the path we found and how long it took
     static class SearchResult {
         ArrayList<Position> path;
         double runtimeSeconds;
@@ -127,6 +131,7 @@ public class FileRead {
         }
     }
 
+    // parses all the command line arguments and puts them in a Config object
     public static Config parseArgs(String[] args) throws IllegalCommandLineInputsException {
         Config config = new Config();
 
@@ -148,6 +153,7 @@ public class FileRead {
             } else if (arg.equals("--Help")) {
                 config.help = true;
             } else {
+                // anything thats not a flag should be the filename
                 if (config.fileName == null) {
                     config.fileName = arg;
                 } else {
@@ -156,6 +162,7 @@ public class FileRead {
             }
         }
 
+        // make sure exactly one mode was picked
         int count = 0;
         if (config.useQueue) count++;
         if (config.useStack) count++;
@@ -185,6 +192,7 @@ public class FileRead {
         System.out.println("  --Help            show this help message");
     }
 
+    // reads map from text format - just reads characters one by one
     public static char[][][] readTextMap(Scanner scan)
             throws IncorrectMapFormatException, IncompleteMapException, IllegalMapCharacterException {
 
@@ -221,6 +229,7 @@ public class FileRead {
         return map;
     }
 
+    // reads map from coordinate format - reads symbol then its position
     public static char[][][] readCoordinateMap(Scanner scan)
             throws IncorrectMapFormatException, IncompleteMapException, IllegalMapCharacterException {
 
@@ -228,6 +237,7 @@ public class FileRead {
         int cols = readPositiveInt(scan, "Missing or invalid column count.");
         int levels = readPositiveInt(scan, "Missing or invalid maze count.");
 
+        // fill with walls first then overwrite the coordinates given
         char[][][] map = makeEmptyMap(rows, cols, levels);
 
         while (scan.hasNext()) {
@@ -268,6 +278,7 @@ public class FileRead {
         return map;
     }
 
+    // helper to read a positive integer from the scanner
     public static int readPositiveInt(Scanner scan, String message)
             throws IncorrectMapFormatException {
         if (!scan.hasNextInt()) {
@@ -283,6 +294,7 @@ public class FileRead {
         return value;
     }
 
+    // creates a map filled with walls '@' as a starting point
     public static char[][][] makeEmptyMap(int rows, int cols, int levels) {
         char[][][] map = new char[rows][cols][levels];
 
@@ -297,32 +309,37 @@ public class FileRead {
         return map;
     }
 
+    // only these characters are allowed in the map
     public static boolean isValidMapChar(char c) {
         return c == 'W' || c == '$' || c == '.' || c == '@' || c == '|';
     }
 
+    // queue search (BFS)
     public static SearchResult queueRoute(char[][][] map) {
         long startTime = System.nanoTime();
-        ArrayList<Position> path = solveMultiLevel(map, "QUEUE");
+        ArrayList<Position> path = solveMultiLevel(map, false, true);
         long endTime = System.nanoTime();
         return new SearchResult(path, (endTime - startTime) / 1000000000.0);
     }
 
+    // stack search (DFS)
     public static SearchResult stackRoute(char[][][] map) {
         long startTime = System.nanoTime();
-        ArrayList<Position> path = solveMultiLevel(map, "STACK");
+        ArrayList<Position> path = solveMultiLevel(map, true, false);
         long endTime = System.nanoTime();
         return new SearchResult(path, (endTime - startTime) / 1000000000.0);
     }
 
+    // optimal search - for unweighted maze, BFS gives shortest path
     public static SearchResult optRoute(char[][][] map) {
         long startTime = System.nanoTime();
-        ArrayList<Position> path = solveMultiLevel(map, "OPT");
+        ArrayList<Position> path = solveMultiLevel(map, false, true);
         long endTime = System.nanoTime();
         return new SearchResult(path, (endTime - startTime) / 1000000000.0);
     }
 
-    public static ArrayList<Position> solveMultiLevel(char[][][] map, String mode) {
+    // handles going level by level
+    public static ArrayList<Position> solveMultiLevel(char[][][] map, boolean useStack, boolean useQueue) {
         ArrayList<Position> fullPath = new ArrayList<Position>();
         int totalLevels = map[0][0].length;
 
@@ -337,8 +354,9 @@ public class FileRead {
 
             ArrayList<Position> part = null;
 
+            // first try to get the store on this level
             if (goalPos != null) {
-                if (mode.equals("STACK")) {
+                if (useStack) {
                     part = dfsSingleLevel(map, startPos, goalPos);
                 } else {
                     part = bfsSingleLevel(map, startPos, goalPos);
@@ -350,8 +368,9 @@ public class FileRead {
                 }
             }
 
+            // if store not reachable, try walkway
             if (walkwayPos != null) {
-                if (mode.equals("STACK")) {
+                if (useStack) {
                     part = dfsSingleLevel(map, startPos, walkwayPos);
                 } else {
                     part = bfsSingleLevel(map, startPos, walkwayPos);
@@ -370,6 +389,7 @@ public class FileRead {
         return null;
     }
 
+    // adds the next segment onto the full path (skips first node to avoid duplicates)
     public static void addPartToFullPath(ArrayList<Position> fullPath, ArrayList<Position> part) {
         if (fullPath.size() == 0) {
             fullPath.addAll(part);
@@ -380,6 +400,7 @@ public class FileRead {
         }
     }
 
+    // BFS on a single level of the map
     public static ArrayList<Position> bfsSingleLevel(char[][][] map, Position start, Position target) {
         boolean[][][] visited = new boolean[map.length][map[0].length][map[0][0].length];
         Position[][][] parent = new Position[map.length][map[0].length][map[0][0].length];
@@ -395,6 +416,7 @@ public class FileRead {
                 return buildPath(parent, current);
             }
 
+            // north south east west
             tryAddQueue(map, current.row - 1, current.col, current.level, current, visited, parent, queue);
             tryAddQueue(map, current.row + 1, current.col, current.level, current, visited, parent, queue);
             tryAddQueue(map, current.row, current.col + 1, current.level, current, visited, parent, queue);
@@ -404,6 +426,7 @@ public class FileRead {
         return null;
     }
 
+    // DFS on a single level of the map
     public static ArrayList<Position> dfsSingleLevel(char[][][] map, Position start, Position target) {
         boolean[][][] visited = new boolean[map.length][map[0].length][map[0][0].length];
         Position[][][] parent = new Position[map.length][map[0].length][map[0][0].length];
@@ -419,7 +442,7 @@ public class FileRead {
                 return buildPath(parent, current);
             }
 
-            // push in reverse order so pop order becomes North, South, East, West
+            // push reverse order so pop order becomes north south east west
             tryAddStack(map, current.row, current.col - 1, current.level, current, visited, parent, stack);
             tryAddStack(map, current.row, current.col + 1, current.level, current, visited, parent, stack);
             tryAddStack(map, current.row + 1, current.col, current.level, current, visited, parent, stack);
@@ -429,6 +452,7 @@ public class FileRead {
         return null;
     }
 
+    // tries to add a neighbor to the queue if its valid and not visited
     public static void tryAddQueue(char[][][] map, int row, int col, int level, Position current,
                                    boolean[][][] visited, Position[][][] parent, Queue<Position> queue) {
 
@@ -442,6 +466,7 @@ public class FileRead {
         }
     }
 
+    // tries to add a neighbor to the stack if its valid and not visited
     public static void tryAddStack(char[][][] map, int row, int col, int level, Position current,
                                    boolean[][][] visited, Position[][][] parent, Stack<Position> stack) {
 
@@ -455,10 +480,12 @@ public class FileRead {
         }
     }
 
+    // walls are not walkable, everything else is
     public static boolean isWalkable(char c) {
         return c == '.' || c == '$' || c == 'W' || c == '|';
     }
 
+    // prints path in coordinate format
     public static void printCoordinateRoute(ArrayList<Position> path) {
         for (int i = 1; i < path.size(); i++) {
             Position p = path.get(i);
@@ -466,18 +493,21 @@ public class FileRead {
         }
     }
 
+    // prints the map with '+' showing where the path went
     public static void printTextRoute(char[][][] originalMap, ArrayList<Position> path) {
         char[][][] copy = copyMap(originalMap);
 
+        // mark path on the copy (skip start and end)
         for (int i = 1; i < path.size() - 1; i++) {
             Position p = path.get(i);
             char current = copy[p.row][p.col][p.level];
 
-            if (current == '.' || current == '|') {
+            if (current == '.') {
                 copy[p.row][p.col][p.level] = '+';
             }
         }
 
+        // print each level
         for (int level = 0; level < copy[0][0].length; level++) {
             for (int row = 0; row < copy.length; row++) {
                 for (int col = 0; col < copy[0].length; col++) {
@@ -489,12 +519,14 @@ public class FileRead {
                 System.out.println();
             }
 
+            // blank line between levels
             if (level < copy[0][0].length - 1) {
                 System.out.println();
             }
         }
     }
 
+    // makes a deep copy of the map so we dont mess up the original
     public static char[][][] copyMap(char[][][] map) {
         char[][][] copy = new char[map.length][map[0].length][map[0][0].length];
 
@@ -509,6 +541,7 @@ public class FileRead {
         return copy;
     }
 
+    // searches a level for a specific character and returns its position
     public static Position findSymbol(char[][][] map, int level, char symbol) {
         for (int row = 0; row < map.length; row++) {
             for (int col = 0; col < map[0].length; col++) {
@@ -517,7 +550,7 @@ public class FileRead {
                 }
             }
         }
-        return null;
+        return null; // not found
     }
 
     public static boolean inBounds(char[][][] map, int row, int col, int level) {
@@ -530,15 +563,18 @@ public class FileRead {
         return a.row == b.row && a.col == b.col && a.level == b.level;
     }
 
+    // builds the path by tracing back through parents from the end node
     public static ArrayList<Position> buildPath(Position[][][] parent, Position end) {
         ArrayList<Position> backwards = new ArrayList<Position>();
         Position current = end;
 
+        // walk backwards through parent pointers
         while (current != null) {
             backwards.add(current);
             current = parent[current.row][current.col][current.level];
         }
 
+        // reverse it so path goes start -> end
         ArrayList<Position> path = new ArrayList<Position>();
 
         for (int i = backwards.size() - 1; i >= 0; i--) {

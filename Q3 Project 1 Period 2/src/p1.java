@@ -1,427 +1,755 @@
 import java.io.File;
 import java.io.FileNotFoundException;
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Deque;
-import java.util.List;
+import java.util.LinkedList;
+import java.util.Queue;
 import java.util.Scanner;
-
-public class p1 {
-
-    // stores a position in the maze
-    private static class Pos {
-        int level;
-        int row;
-        int col;
-
-        Pos(int level, int row, int col) {
-            this.level = level;
-            this.row = row;
-            this.col = col;
-        }
-    }
-
-    // stores the command line settings
-    private static class Config {
-        boolean useQueue = false;
-        boolean useStack = false;
-        boolean useOpt = false;
-        boolean printTime = false;
-        boolean inCoordinate = false;
-        boolean outCoordinate = false;
-        String fileName = null;
-    }
-
-    public static void main(String[] args) {
-        Config config;
-        try {
-            config = parseArgs(args);
-        } catch (IllegalCommandLineInputsException e) {
-            System.out.println(e.getMessage());
-            System.exit(-1);
-            return;
-        }
-
-        char[][][] map;
-        try {
-            map = readMap(config.fileName, config.inCoordinate);
-        } catch (FileNotFoundException e) {
-            System.out.println("Input file not found.");
-            System.exit(-1);
-            return;
-        } catch (IllegalMapCharacterException e) {
-            System.out.println(e.getMessage());
-            System.exit(-1);
-            return;
-        } catch (IncompleteMapException e) {
-            System.out.println(e.getMessage());
-            System.exit(-1);
-            return;
-        } catch (IncorrectMapFormatException e) {
-            System.out.println(e.getMessage());
-            System.exit(-1);
-            return;
-        }
-
-        // find start and goal positions
-        Pos start = findFirst(map, 'W');
-        Pos goal = findFirst(map, '$');
-
-        if (start == null || goal == null) {
-            System.out.println("Map must contain both W and $.");
-            System.exit(-1);
-            return;
-        }
-
-        // time only the search
-        long startTime = System.nanoTime();
-
-        List<Pos> path = search(map, start, goal, config.useQueue, config.useOpt);
-
-        long endTime = System.nanoTime();
-        double seconds = (endTime - startTime) / 1_000_000_000.0;
-
-        if (path == null) {
-            System.out.println("The Wolverine Store is closed.");
-        } else if (config.outCoordinate) {
-            printCoordinates(path);
-        } else {
-            drawPath(map, path);
-            printMap(map);
-        }
-
-        if (config.printTime) {
-            System.out.println("Total Runtime: " + seconds + " seconds");
-        }
-    }
-
-    private static Config parseArgs(String[] args) throws IllegalCommandLineInputsException {
-        Config config = new Config();
-
-        for (String arg : args) {
-            if ("--Queue".equals(arg)) {
-                config.useQueue = true;
-            } else if ("--Stack".equals(arg)) {
-                config.useStack = true;
-            } else if ("--Opt".equals(arg)) {
-                config.useOpt = true;
-            } else if ("--Time".equals(arg)) {
-                config.printTime = true;
-            } else if ("--Incoordinate".equals(arg)) {
-                config.inCoordinate = true;
-            } else if ("--Outcoordinate".equals(arg)) {
-                config.outCoordinate = true;
-            } else if ("--Outmap".equals(arg)) {
-                config.outCoordinate = false;
-            } else if ("--Help".equals(arg)) {
-                printHelp();
-                System.exit(0);
-            } else if (arg.startsWith("--")) {
-                throw new IllegalCommandLineInputsException("Invalid command line option.");
-            } else {
-                if (config.fileName != null) {
-                    throw new IllegalCommandLineInputsException("Too many input file names.");
-                }
-                config.fileName = arg;
-            }
-        }
-
-        // need exactly one of --Queue, --Stack, --Opt
-        int modeCount = (config.useQueue ? 1 : 0) + (config.useStack ? 1 : 0) + (config.useOpt ? 1 : 0);
-        if (modeCount != 1) {
-            throw new IllegalCommandLineInputsException(
-                    "Exactly one of --Queue, --Stack, or --Opt must be provided.");
-        }
-
-        return config;
-    }
-
-    private static void printHelp() {
-        System.out.println("Wolverine's Quest - Maze Solver");
-        System.out.println("Usage: java p1 [options] [inputfile]");
-        System.out.println("  --Queue          Use queue-based search");
-        System.out.println("  --Stack          Use stack-based search");
-        System.out.println("  --Opt            Find the shortest path");
-        System.out.println("  --Time           Print total search runtime");
-        System.out.println("  --Incoordinate   Input is coordinate-based format");
-        System.out.println("  --Outcoordinate  Output path as coordinates");
-        System.out.println("  --Help           Show this message and exit");
-    }
-
-    private static char[][][] readMap(String fileName, boolean inCoordinate)
-            throws FileNotFoundException, IllegalMapCharacterException,
-            IncompleteMapException, IncorrectMapFormatException {
-        Scanner sc;
-
-        if (fileName == null) {
-            sc = new Scanner(System.in);
-        } else {
-            sc = new Scanner(new File(fileName));
-        }
-
-        // read the dimensions from the first line
-        if (!sc.hasNextInt()) {
-            sc.close();
-            throw new IncorrectMapFormatException("Invalid map header.");
-        }
-        int rows = sc.nextInt();
-
-        if (!sc.hasNextInt()) {
-            sc.close();
-            throw new IncorrectMapFormatException("Invalid map header.");
-        }
-        int cols = sc.nextInt();
-
-        if (!sc.hasNextInt()) {
-            sc.close();
-            throw new IncorrectMapFormatException("Invalid map header.");
-        }
-        int levels = sc.nextInt();
-
-        if (rows <= 0 || cols <= 0 || levels <= 0) {
-            sc.close();
-            throw new IncorrectMapFormatException("Map dimensions must be positive.");
-        }
-
-        List<String> tokens = new ArrayList<>();
-        while (sc.hasNext()) {
-            tokens.add(sc.next());
-        }
-        sc.close();
-
-        if (inCoordinate) {
-            return readCoordinateFormat(tokens, rows, cols, levels);
-        } else {
-            return readGridFormat(tokens, rows, cols, levels);
-        }
-    }
-
-    private static char[][][] readGridFormat(List<String> tokens, int rows, int cols, int levels)
-            throws IllegalMapCharacterException, IncompleteMapException {
-        int expected = rows * cols * levels;
-        if (tokens.size() < expected) {
-            throw new IncompleteMapException("Incomplete map: expected " + expected
-                    + " cells, found " + tokens.size() + ".");
-        }
-
-        char[][][] map = new char[levels][rows][cols];
-        int index = 0;
-
-        for (int l = 0; l < levels; l++) {
-            for (int r = 0; r < rows; r++) {
-                for (int c = 0; c < cols; c++) {
-                    map[l][r][c] = parseCell(tokens.get(index++));
-                }
-            }
-        }
-
-        return map;
-    }
-
-    private static char[][][] readCoordinateFormat(List<String> tokens, int rows, int cols, int levels)
-            throws IllegalMapCharacterException, IncompleteMapException, IncorrectMapFormatException {
-        char[][][] map = new char[levels][rows][cols];
-
-        // fill everything as open by default
-        for (int l = 0; l < levels; l++) {
-            for (int r = 0; r < rows; r++) {
-                for (int c = 0; c < cols; c++) {
-                    map[l][r][c] = '.';
-                }
-            }
-        }
-
-        int entries = rows * cols * levels;
-        int expectedTokens = entries * 4;
-
-        if (tokens.size() < expectedTokens) {
-            throw new IncompleteMapException("Incomplete coordinate map: expected "
-                    + expectedTokens + " tokens, found " + tokens.size() + ".");
-        }
-
-        int index = 0;
-        for (int i = 0; i < entries; i++) {
-            char value = parseCell(tokens.get(index++));
-            int row = parseInt(tokens.get(index++), "Invalid coordinate format.");
-            int col = parseInt(tokens.get(index++), "Invalid coordinate format.");
-            int level = parseInt(tokens.get(index++), "Invalid coordinate format.");
-
-            if (level < 0 || level >= levels || row < 0 || row >= rows || col < 0 || col >= cols) {
-                throw new IncorrectMapFormatException("Coordinate out of bounds.");
-            }
-
-            map[level][row][col] = value;
-        }
-
-        return map;
-    }
-
-    private static int parseInt(String s, String errorMessage) throws IncorrectMapFormatException {
-        try {
-            return Integer.parseInt(s);
-        } catch (NumberFormatException e) {
-            throw new IncorrectMapFormatException(errorMessage);
-        }
-    }
-
-    private static char parseCell(String token) throws IllegalMapCharacterException {
-        if (token.length() != 1) {
-            throw new IllegalMapCharacterException("Illegal map character.");
-        }
-
-        char ch = token.charAt(0);
-        if (ch != 'W' && ch != '$' && ch != '@' && ch != '.' && ch != '|') {
-            throw new IllegalMapCharacterException("Illegal map character.");
-        }
-
-        return ch;
-    }
-
-    // scans the map and returns the first cell that matches the target
-    private static Pos findFirst(char[][][] map, char target) {
-        for (int l = 0; l < map.length; l++) {
-            for (int r = 0; r < map[l].length; r++) {
-                for (int c = 0; c < map[l][r].length; c++) {
-                    if (map[l][r][c] == target) {
-                        return new Pos(l, r, c);
-                    }
-                }
-            }
-        }
-        return null;
-    }
-
-    private static List<Pos> search(char[][][] map, Pos start, Pos goal,
-            boolean useQueue, boolean useOpt) {
-        int levels = map.length;
-        int rows = map[0].length;
-        int cols = map[0][0].length;
-
-        boolean[][][] visited = new boolean[levels][rows][cols];
-        Pos[][][] parent = new Pos[levels][rows][cols];
-        Deque<Pos> frontier = new ArrayDeque<>();
-
-        frontier.addLast(start);
-        visited[start.level][start.row][start.col] = true;
-
-        while (!frontier.isEmpty()) {
-            // queue (BFS) takes from front, stack (DFS) takes from back
-            Pos cur = (useQueue || useOpt) ? frontier.removeFirst() : frontier.removeLast();
-
-            if (samePos(cur, goal)) {
-                return buildPath(parent, cur);
-            }
-
-            // check north, south, west, east
-            tryAdd(map, visited, parent, frontier, cur, cur.level, cur.row - 1, cur.col);
-            tryAdd(map, visited, parent, frontier, cur, cur.level, cur.row + 1, cur.col);
-            tryAdd(map, visited, parent, frontier, cur, cur.level, cur.row, cur.col - 1);
-            tryAdd(map, visited, parent, frontier, cur, cur.level, cur.row, cur.col + 1);
-
-            // if on a walkway, try moving to other levels
-            if (map[cur.level][cur.row][cur.col] == '|') {
-                addWalkwayTransitions(map, visited, parent, frontier, cur);
-            }
-        }
-
-        return null;
-    }
-
-    // walkway connects to same row/col on every other level
-    private static void addWalkwayTransitions(char[][][] map, boolean[][][] visited,
-            Pos[][][] parent, Deque<Pos> frontier, Pos cur) {
-        for (int otherLevel = 0; otherLevel < map.length; otherLevel++) {
-            if (otherLevel == cur.level) {
-                continue;
-            }
-
-            if (map[otherLevel][cur.row][cur.col] == '@') {
-                continue;
-            }
-
-            if (!visited[otherLevel][cur.row][cur.col]) {
-                visited[otherLevel][cur.row][cur.col] = true;
-                parent[otherLevel][cur.row][cur.col] = cur;
-                frontier.addLast(new Pos(otherLevel, cur.row, cur.col));
-            }
-        }
-    }
-
-    private static void tryAdd(char[][][] map, boolean[][][] visited, Pos[][][] parent,
-            Deque<Pos> frontier, Pos cur, int level, int row, int col) {
-        if (level < 0 || level >= map.length) {
-            return;
-        }
-        if (row < 0 || row >= map[0].length) {
-            return;
-        }
-        if (col < 0 || col >= map[0][0].length) {
-            return;
-        }
-
-        if (map[level][row][col] == '@') {
-            return;
-        }
-
-        if (!visited[level][row][col]) {
-            visited[level][row][col] = true;
-            parent[level][row][col] = cur;
-            frontier.addLast(new Pos(level, row, col));
-        }
-    }
-
-    private static boolean samePos(Pos a, Pos b) {
-        return a.level == b.level && a.row == b.row && a.col == b.col;
-    }
-
-    // traces back through parent array to build path from start to goal
-    private static List<Pos> buildPath(Pos[][][] parent, Pos end) {
-        List<Pos> path = new ArrayList<>();
-        Pos cur = end;
-
-        while (cur != null) {
-            path.add(cur);
-            cur = parent[cur.level][cur.row][cur.col];
-        }
-
-        Collections.reverse(path);
-        return path;
-    }
-
-    // marks the path with '+' on the map
-    private static void drawPath(char[][][] map, List<Pos> path) {
-        for (int i = 1; i < path.size() - 1; i++) {
-            Pos p = path.get(i);
-            char ch = map[p.level][p.row][p.col];
-            if (ch == '.' || ch == '|') {
-                map[p.level][p.row][p.col] = '+';
-            }
-        }
-    }
-
-    private static void printMap(char[][][] map) {
-        for (int l = 0; l < map.length; l++) {
-            for (int r = 0; r < map[l].length; r++) {
-                for (int c = 0; c < map[l][r].length; c++) {
-                    if (c > 0) {
-                        System.out.print(" ");
-                    }
-                    System.out.print(map[l][r][c]);
-                }
-                System.out.println();
-            }
-
-            if (l < map.length - 1) {
-                System.out.println();
-            }
-        }
-    }
-
-    // prints path as coordinates: + row col level
-    private static void printCoordinates(List<Pos> path) {
-        for (Pos p : path) {
-            System.out.println("+ " + p.row + " " + p.col + " " + p.level);
-        }
-    }
+import java.util.Stack;
+
+import javax.sound.sampled.Line;
+
+public class p1{
+	
+	private char[][][] map;
+	
+	public static void main(String[] arg) {
+		boolean useQueue = false;
+		boolean useStack = false;
+		boolean useOpt = false;
+		boolean useTime = false;
+		boolean inCoord = false;
+		boolean outCoord = false;
+		
+		
+		for(int i =0;  i < arg.length -1; i++) {
+			if(arg[i].equals("--Queue")) {
+				useQueue = true;
+			} else if(arg[i].equals("--Stack")) {
+				useStack = true;
+			} else if(arg[i].equals("--Opt")) {
+				useOpt = true;
+			} else if(arg[i].equals("--Time")) {
+				useTime = true;
+			} else if(arg[i].equals("--Incoordinate")) {
+				inCoord = true;
+			} else if(arg[i].equals("--Outcoordinate")) {
+				outCoord = true;
+			} else if(arg[i].equals("--Help")) {
+				System.out.println("This program finds a path through a maze");
+	            System.out.println("--Stack 		: use stack-based approach");
+	            System.out.println("--Queue 		: use queue-based approach");
+	            System.out.println("--Opt   		: use optimal path approach");
+	            System.out.println("--Time  		: print runtime");
+	            System.out.println("--Incoordinate  : input is coordinate format");
+	            System.out.println("--Outcoordinate : output is coordinate format");
+	            System.exit(0);
+			}
+		}
+		
+		int c = 0;
+		if(useQueue) {
+			c++;
+		}
+		if(useStack) {
+			c++;
+		}
+		if(useOpt) {
+			c++;
+		}
+		
+		if(c != 1) {
+			System.out.println("Error: must use exactly one of --Stack, --Queue, or --Opt");
+			System.exit(-1);
+		}
+		
+		String filename = arg[arg.length - 1];
+		p1 program = new p1();
+
+		boolean loadedMap = false;
+		if(inCoord) {
+		    loadedMap = program.readCord(filename);
+		} else {
+		    loadedMap = program.readMap(filename);
+		}
+
+		if(loadedMap) {
+		    long startTime = System.nanoTime();
+
+		    if(useQueue)      program.solveQueue(outCoord);
+		    else if(useStack) program.solveStack(outCoord);
+		    else if(useOpt)   program.solveOptimal(outCoord);
+
+		    if(useTime) {
+		        long endTime = System.nanoTime();
+		        double seconds = (endTime - startTime) / 1000000000.0;
+		        System.out.printf("Total Runtime: %.6f seconds%n", seconds);
+		    }
+		} else {
+		    System.out.println("Failed to load map: " + filename);
+		    System.exit(-1);
+		}
+	}
+	
+	public p1() {}
+
+	public void printMap() {
+		
+		int levels = map[0][0].length;
+		int rows = map.length;
+		int cols = map[0].length;
+		
+		for (int level = 0; level < levels; level++) {
+			for(int row = 0; row < rows; row++) {
+				for(int col = 0; col < cols; col++) {	
+					System.out.print(map[row][col][level]);
+				}
+				System.out.println();
+			}
+		}
+	}
+	
+	public boolean readMap(String filename) {
+		File file = new File(filename);
+		try {
+			Scanner s = new Scanner(file);
+
+			int rows = s.nextInt();
+			int cols = s.nextInt();
+			int levels = s.nextInt();
+			
+			if(rows < 1 || cols < 1 || levels < 1) {
+				System.out.println("File does not start with 3 positive non-zero numbers!");
+				return false;
+			}
+			
+			s.nextLine();
+			map = new char[rows][cols][levels];
+			for(int level = 0; level<levels; level++) {
+				for(int row = 0; row<rows; row++) {
+					
+					String line = s.nextLine();
+					
+					if(line.length() < cols) {
+						System.out.println("Line too short \nRow: " + row + "\nLevel: "+level);
+						return false;
+					}
+					
+					
+					for(int col = 0; col<cols; col++) {
+						//checking for invalid characters
+						char c = line.charAt(col);
+						if(c != 'W' && c != '|' && c != '$' && c != '@' && c != '.') {
+							System.out.println("Invalid character: '" + c +"' \nPoint: ("+row+","+col+")\nLevel: "+level); 
+							return false;
+						}
+						map[row][col][level]= c;
+					}
+				}
+			}
+			
+		} catch (FileNotFoundException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		return true;
+	}
+	
+	public boolean readCord(String filename) {
+		File file = new File(filename);
+		try {
+			Scanner s = new Scanner(file);
+			int rows = s.nextInt();
+			int cols = s.nextInt();
+			int levels = s.nextInt();
+			
+			if(rows < 1 || cols < 1 || levels < 1) {
+				System.out.println("Filem does not start with 3 positive non-zero numbers");;
+				return false;
+			}
+			
+			s.nextLine();
+			map = new char[rows][cols][levels];
+			
+			// filling everything with open pathway
+			for (int row = 0; row < rows; row++) {
+			    for (int col = 0; col < cols; col++) {
+			    	for(int level = 0; level<levels; level++) {
+			    		map[row][col][level] = '.';
+			    	}
+			    }
+			}
+			while(s.hasNext()) {
+				char type = s.next().charAt(0);
+				int row = s.nextInt();
+				int col = s.nextInt();
+				int level = s.nextInt();
+				
+				if(type != 'W' && type != '|' && type != '$' && type != '@' && type != '.') {
+					System.out.println("Invalid character: '" + type + "'\nPoint: (" + row + "," + col + ")\nLevel: " + level);
+					return false;
+				}
+				
+				if(row < 0 || row >= rows || col < 0 || col >= cols || level < 0 || level >= levels) {
+					System.out.println("Coordinates out of bounds!\nPoint: (" + row + "," + col + ")\nLevel: " + level);
+					return false;
+				}
+				map[row][col][level] = type;
+			}
+						
+		} catch (FileNotFoundException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		return true;
+	}
+	
+	public void solveQueue(boolean outCoord) {
+		int rows   = map.length;
+	    int cols   = map[0].length;
+	    int levels = map[0][0].length;
+	    
+	    int[] dRow = {-1, 1, 0, 0};
+	    int[] dCol = { 0, 0, 1,-1};
+	    
+	    int startRow = -1;
+	    int startCol = -1;
+	    int startLevel = 0;
+	    boolean found = false;
+	    
+	    
+	    for(int level = 0; level < levels; level++) {
+	    	for(int row = 0; row < rows; row++) {
+	    		for(int col = 0; col < cols; col++) {
+	    			if(!found && map[row][col][level] == 'W') {
+	    				startRow = row;
+	    				startCol = col;
+	    				startLevel = level;
+	    				found = true;
+	    			}
+	    			
+	    		}
+	    	}
+	    }
+	    
+	    int[][][][] sol = new int[rows][cols][levels][3];
+	    
+	    // use -1 as symbol for not visited yet
+	    for(int r = 0; r < rows; r++) {
+	    	for(int c = 0; c < cols; c++) {
+	    		for(int l = 0; l < levels; l++) {
+	    			sol[r][c][l][0] = -1;
+	    			sol[r][c][l][1] = -1;
+	    			sol[r][c][l][2] = -1;
+	    		}
+	    	}
+	    }
+	    
+	    boolean[][][] visited = new boolean[rows][cols][levels];
+	    
+	    Queue<int[]> queue = new LinkedList<int[]>();
+	    
+	    visited[startRow][startCol][startLevel] = true;
+	    
+	    int[] start = {startRow, startCol, startLevel};
+	    
+	    queue.add(start);
+	    
+	    
+	    int[] goal = null;
+	    
+	    while(!queue.isEmpty()) {
+	    	int[] current = queue.remove();
+	    	int row = current[0];
+	    	int col = current[1];
+	    	int level = current[2];
+	    	
+	    	// checking north, south, east, west
+	    	
+	    	for(int d = 0; d < 4; d++) {
+	    		int nRow = row + dRow[d];
+	    		int nCol = col + dCol[d];
+	    		int nLevel = level;
+	    		
+	    		// checks if out of bounds
+	    		if (nRow < 0 || nRow >= rows || nCol < 0 || nCol >= cols) {
+	                continue;
+	            }
+	    		
+	    		
+	    		// checks visited
+	    		if (visited[nRow][nCol][nLevel]) {
+	                continue;
+	            }
+	    		
+	    		
+	    		if (map[nRow][nCol][nLevel] == '@') {
+	                continue;
+	            }
+	    		
+	    		if (map[nRow][nCol][nLevel] == '|') {
+	    			int nextLevel = nLevel + 1;
+	    		    if (nextLevel >= levels) continue;
+	    		    
+	    		    boolean foundW = false;
+	    		    for (int r = 0; r < rows && !foundW; r++) {
+	    		    	for (int c = 0; c < cols && !foundW; c++) {
+	    		    		if (map[r][c][nextLevel] == 'W') {
+	    		    			if (!visited[r][c][nextLevel]) {
+	    		    				visited[r][c][nextLevel] = true;
+	    		    				sol[r][c][nextLevel][0] = row;
+	    		    				sol[r][c][nextLevel][1] = col;
+	    		    				sol[r][c][nextLevel][2] = level;
+	    		    				int[] v = {r, c, nextLevel};
+	    		    				queue.add(v);
+	    		    				}
+	    		    			foundW = true;
+	    		    			}
+	    		    		}
+	    		    	}
+	    		    continue; 
+	            }
+	    		
+	    		visited[nRow][nCol][nLevel] = true;
+	    		sol[nRow][nCol][nLevel][0] = row;
+	    		sol[nRow][nCol][nLevel][1] = col;
+	    		sol[nRow][nCol][nLevel][2] = level;
+	    		
+	    		int[] v = {nRow, nCol, nLevel};
+	    		queue.add(v);
+	    		
+	    		if (map[nRow][nCol][nLevel] == '$') {
+	                goal = new int[]{nRow, nCol, nLevel};
+	                break;
+	            }
+
+	    	}
+	    	
+	    	if (goal != null) {
+	            break;
+	        }
+	    }
+	    
+	    if (goal == null) {
+	    	System.out.println("The Wolverine Store is closed.");
+	        return;
+	    }
+	    
+	    //going backwards and getting path
+	    int pathLength = 0;
+	    int[] curr = goal;
+
+	    while (true) {
+	    	int[] p = sol[curr[0]][curr[1]][curr[2]];
+	    	
+	    	if (p[0] == -1) {
+	            break;
+	        }
+	    	pathLength++;
+	    	
+	    	curr= p;
+	    }
+	    
+	    //storing path 
+	    int[][] path = new int[pathLength][3];
+	    int index = pathLength-1;
+	    
+	    curr = goal;
+	    
+	    while(index >=0) {
+	    	int[] p = sol[curr[0]][curr[1]][curr[2]];
+	    	
+	    	if (p[0] == -1) {
+	            break;
+	        }
+	    	
+	    	if(map[p[0]][p[1]][p[2]] != 'W') {
+	    		map[p[0]][p[1]][p[2]] = '+';
+	    	}
+	    	
+	    	path[index][0] = p[0];
+	    	path[index][1] = p[1];
+	    	path[index][2] = p[2];
+	    	
+	    	index --; 
+	    	curr = p;
+	    }
+	    
+	    if(outCoord) {
+	    	printCoord(path);
+	    } else {
+	    	printMap();
+	    }
+	}
+	
+	
+	private void printCoord(int[][] path) {
+		for (int i = 0; i < path.length; i++) {
+			
+			if (map[path[i][0]][path[i][1]][path[i][2]] == 'W') {
+	            continue;
+	        }
+			System.out.println("+ " + path[i][0] + " " + path[i][1] + " " + path[i][2]);
+		}
+		
+	}
+
+	// same code as solveQueue() but just using stack and pop/push
+	public void solveStack(boolean outCoord) {
+		
+		
+		int rows   = map.length;
+	    int cols   = map[0].length;
+	    int levels = map[0][0].length;
+	    
+	    int[] dRow = {-1, 1, 0, 0};
+	    int[] dCol = { 0, 0, 1,-1};
+	    
+	    int startRow = -1;
+	    int startCol = -1;
+	    int startLevel = 0;
+	    boolean found = false;
+	    
+	    
+	    for(int level = 0; level < levels; level++) {
+	    	for(int row = 0; row < rows; row++) {
+	    		for(int col = 0; col < cols; col++) {
+	    			if(!found && map[row][col][level] == 'W') {
+	    				startRow = row;
+	    				startCol = col;
+	    				startLevel = level;
+	    				found = true;
+	    			}
+	    			
+	    		}
+	    	}
+	    }
+	    
+	    int[][][][] sol = new int[rows][cols][levels][3];
+	    
+	    // use -1 as symbol for not visited yet
+	    for(int r = 0; r < rows; r++) {
+	    	for(int c = 0; c < cols; c++) {
+	    		for(int l = 0; l < levels; l++) {
+	    			sol[r][c][l][0] = -1;
+	    			sol[r][c][l][1] = -1;
+	    			sol[r][c][l][2] = -1;
+	    		}
+	    	}
+	    }
+	    
+	    boolean[][][] visited = new boolean[rows][cols][levels];
+	    
+	    Stack<int[]> stack = new Stack<int[]>();
+	    
+	    visited[startRow][startCol][startLevel] = true;
+	    
+	    int[] start = {startRow, startCol, startLevel};
+	    
+	    stack.push(start);
+	    
+	    
+	    int[] goal = null;
+	    
+	    while(!stack.isEmpty()) {
+	    	int[] current = stack.pop();
+	    	int row = current[0];
+	    	int col = current[1];
+	    	int level = current[2];
+	    	
+	    	// checking north, south, east, west
+	    	
+	    	for(int d = 0; d < 4; d++) {
+	    		int nRow = row + dRow[d];
+	    		int nCol = col + dCol[d];
+	    		int nLevel = level;
+	    		
+	    		// checks if out of bounds
+	    		if (nRow < 0 || nRow >= rows || nCol < 0 || nCol >= cols) {
+	                continue;
+	            }
+	    		
+	    		
+	    		// checks visited
+	    		if (visited[nRow][nCol][nLevel]) {
+	                continue;
+	            }
+	    		
+	    		
+	    		if (map[nRow][nCol][nLevel] == '@') {
+	                continue;
+	            }
+	    		
+	    		if (map[nRow][nCol][nLevel] == '|') {
+	    			int nextLevel = nLevel + 1;
+	    		    if (nextLevel >= levels) continue;
+	    		    
+	    		    boolean foundW = false;
+	    		    for (int r = 0; r < rows && !foundW; r++) {
+	    		    	for (int c = 0; c < cols && !foundW; c++) {
+	    		    		if (map[r][c][nextLevel] == 'W') {
+	    		    			if (!visited[r][c][nextLevel]) {
+	    		    				visited[r][c][nextLevel] = true;
+	    		    				sol[r][c][nextLevel][0] = row;
+	    		    				sol[r][c][nextLevel][1] = col;
+	    		    				sol[r][c][nextLevel][2] = level;
+	    		    				int[] v = {r, c, nextLevel};
+	    		    				stack.push(v);
+	    		    				}
+	    		    			foundW = true;
+	    		    			}
+	    		    		}
+	    		    	}
+	    		    continue; 
+	            }
+	    		
+	    		visited[nRow][nCol][nLevel] = true;
+	    		sol[nRow][nCol][nLevel][0] = row;
+	    		sol[nRow][nCol][nLevel][1] = col;
+	    		sol[nRow][nCol][nLevel][2] = level;
+	    		
+	    		int[] v = {nRow, nCol, nLevel};
+	    		stack.push(v);
+	    		
+	    		if (map[nRow][nCol][nLevel] == '$') {
+	                goal = new int[]{nRow, nCol, nLevel};
+	                break;
+	            }
+
+	    	}
+	    	
+	    	if (goal != null) {
+	            break;
+	        }
+	    }
+	    
+	    if (goal == null) {
+	    	System.out.println("The Wolverine Store is closed.");
+	        return;
+	    }
+	    
+	    int pathLength = 0;
+	    int[] curr = goal;
+
+	    while (true) {
+	    	int[] p = sol[curr[0]][curr[1]][curr[2]];
+	    	
+	    	if (p[0] == -1) {
+	            break;
+	        }
+	    	pathLength++;
+	    	
+	    	curr= p;
+	    }
+	    
+	    //storing path 
+	    int[][] path = new int[pathLength][3];
+	    int index = pathLength-1;
+	    
+	    curr = goal;
+	    
+	    while(index >=0) {
+	    	int[] p = sol[curr[0]][curr[1]][curr[2]];
+	    	
+	    	if (p[0] == -1) {
+	            break;
+	        }
+	    	
+	    	if(map[p[0]][p[1]][p[2]] != 'W') {
+	    		map[p[0]][p[1]][p[2]] = '+';
+	    	}
+	    	
+	    	path[index][0] = p[0];
+	    	path[index][1] = p[1];
+	    	path[index][2] = p[2];
+	    	
+	    	index --; 
+	    	curr = p;
+	    }
+	    
+	    if(outCoord) {
+	    	printCoord(path);
+	    } else {
+	    	printMap();
+	    }
+	}
+	
+	
+	// same code as solveQueue() but it solves in less time thank solveQueue() + solveStack()
+	public void solveOptimal(boolean outCoord) {
+		int rows   = map.length;
+	    int cols   = map[0].length;
+	    int levels = map[0][0].length;
+	    
+	    int[] dRow = {-1, 1, 0, 0};
+	    int[] dCol = { 0, 0, 1,-1};
+	    
+	    int startRow = -1;
+	    int startCol = -1;
+	    int startLevel = 0;
+	    boolean found = false;
+	    
+	    
+	    for(int level = 0; level < levels; level++) {
+	    	for(int row = 0; row < rows; row++) {
+	    		for(int col = 0; col < cols; col++) {
+	    			if(!found && map[row][col][level] == 'W') {
+	    				startRow = row;
+	    				startCol = col;
+	    				startLevel = level;
+	    				found = true;
+	    			}
+	    			
+	    		}
+	    	}
+	    }
+	    
+	    int[][][][] sol = new int[rows][cols][levels][3];
+	    
+	    // use -1 as symbol for not visited yet
+	    for(int r = 0; r < rows; r++) {
+	    	for(int c = 0; c < cols; c++) {
+	    		for(int l = 0; l < levels; l++) {
+	    			sol[r][c][l][0] = -1;
+	    			sol[r][c][l][1] = -1;
+	    			sol[r][c][l][2] = -1;
+	    		}
+	    	}
+	    }
+	    
+	    boolean[][][] visited = new boolean[rows][cols][levels];
+	    
+	    Queue<int[]> queue = new LinkedList<int[]>();
+	    
+	    visited[startRow][startCol][startLevel] = true;
+	    
+	    int[] start = {startRow, startCol, startLevel};
+	    
+	    queue.add(start);
+	    
+	    
+	    int[] goal = null;
+	    
+	    while(!queue.isEmpty()) {
+	    	int[] current = queue.remove();
+	    	int row = current[0];
+	    	int col = current[1];
+	    	int level = current[2];
+	    	
+	    	// checking north, south, east, west
+	    	
+	    	for(int d = 0; d < 4; d++) {
+	    		int nRow = row + dRow[d];
+	    		int nCol = col + dCol[d];
+	    		int nLevel = level;
+	    		
+	    		// checks if out of bounds
+	    		if (nRow < 0 || nRow >= rows || nCol < 0 || nCol >= cols) {
+	                continue;
+	            }
+	    		
+	    		
+	    		// checks visited
+	    		if (visited[nRow][nCol][nLevel]) {
+	                continue;
+	            }
+	    		
+	    		
+	    		if (map[nRow][nCol][nLevel] == '@') {
+	                continue;
+	            }
+	    		
+	    		if (map[nRow][nCol][nLevel] == '|') {
+	    			int nextLevel = nLevel + 1;
+	    		    if (nextLevel >= levels) continue;
+	    		    
+	    		    boolean foundW = false;
+	    		    for (int r = 0; r < rows && !foundW; r++) {
+	    		    	for (int c = 0; c < cols && !foundW; c++) {
+	    		    		if (map[r][c][nextLevel] == 'W') {
+	    		    			if (!visited[r][c][nextLevel]) {
+	    		    				visited[r][c][nextLevel] = true;
+	    		    				sol[r][c][nextLevel][0] = row;
+	    		    				sol[r][c][nextLevel][1] = col;
+	    		    				sol[r][c][nextLevel][2] = level;
+	    		    				int[] v = {r, c, nextLevel};
+	    		    				queue.add(v);
+	    		    				}
+	    		    			foundW = true;
+	    		    			}
+	    		    		}
+	    		    	}
+	    		    continue; 
+	            }
+	    		
+	    		visited[nRow][nCol][nLevel] = true;
+	    		sol[nRow][nCol][nLevel][0] = row;
+	    		sol[nRow][nCol][nLevel][1] = col;
+	    		sol[nRow][nCol][nLevel][2] = level;
+	    		
+	    		int[] v = {nRow, nCol, nLevel};
+	    		queue.add(v);
+	    		
+	    		if (map[nRow][nCol][nLevel] == '$') {
+	                goal = new int[]{nRow, nCol, nLevel};
+	                break;
+	            }
+
+	    	}
+	    	
+	    	if (goal != null) {
+	            break;
+	        }
+	    }
+	    
+	    if (goal == null) {
+	    	System.out.println("The Wolverine Store is closed.");
+	        return;
+	    }
+	    
+	    int pathLength = 0;
+	    int[] curr = goal;
+
+	    while (true) {
+	    	int[] p = sol[curr[0]][curr[1]][curr[2]];
+	    	
+	    	if (p[0] == -1) {
+	            break;
+	        }
+	    	pathLength++;
+	    	
+	    	curr= p;
+	    }
+	    
+	    //storing path 
+	    int[][] path = new int[pathLength][3];
+	    int index = pathLength-1;
+	    
+	    curr = goal;
+	    
+	    while(index >=0) {
+	    	int[] p = sol[curr[0]][curr[1]][curr[2]];
+	    	
+	    	if (p[0] == -1) {
+	            break;
+	        }
+	    	
+	    	if(map[p[0]][p[1]][p[2]] != 'W') {
+	    		map[p[0]][p[1]][p[2]] = '+';
+	    	}
+	    	
+	    	path[index][0] = p[0];
+	    	path[index][1] = p[1];
+	    	path[index][2] = p[2];
+	    	
+	    	index --; 
+	    	curr = p;
+	    }
+	    
+	    if(outCoord) {
+	    	printCoord(path);
+	    } else {
+	    	printMap();
+	    }
+	}
+	
 }
+

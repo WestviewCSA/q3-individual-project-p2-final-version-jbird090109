@@ -9,13 +9,7 @@ import java.util.Scanner;
 
 public class p1 {
 
-    private static final char START = 'W';
-    private static final char GOAL = '$';
-    private static final char WALL = '@';
-    private static final char OPEN = '.';
-    private static final char WALKWAY = '|';
-    private static final char PATH = '+';
-
+    // stores a position in the maze
     private static class Pos {
         int level;
         int row;
@@ -28,6 +22,7 @@ public class p1 {
         }
     }
 
+    // stores the command line settings
     private static class Config {
         boolean useQueue = false;
         boolean useStack = false;
@@ -69,8 +64,9 @@ public class p1 {
             return;
         }
 
-        Pos start = findFirst(map, START);
-        Pos goal = findFirst(map, GOAL);
+        // find start and goal positions
+        Pos start = findFirst(map, 'W');
+        Pos goal = findFirst(map, '$');
 
         if (start == null || goal == null) {
             System.out.println("Map must contain both W and $.");
@@ -78,7 +74,7 @@ public class p1 {
             return;
         }
 
-        // time only the search, not reading input or printing output
+        // time only the search
         long startTime = System.nanoTime();
 
         List<Pos> path = search(map, start, goal, config.useQueue, config.useOpt);
@@ -131,7 +127,7 @@ public class p1 {
             }
         }
 
-        // exactly one of --Queue, --Stack, --Opt must be set
+        // need exactly one of --Queue, --Stack, --Opt
         int modeCount = (config.useQueue ? 1 : 0) + (config.useStack ? 1 : 0) + (config.useOpt ? 1 : 0);
         if (modeCount != 1) {
             throw new IllegalCommandLineInputsException(
@@ -164,6 +160,7 @@ public class p1 {
             sc = new Scanner(new File(fileName));
         }
 
+        // read the dimensions from the first line
         if (!sc.hasNextInt()) {
             sc.close();
             throw new IncorrectMapFormatException("Invalid map header.");
@@ -226,10 +223,11 @@ public class p1 {
             throws IllegalMapCharacterException, IncompleteMapException, IncorrectMapFormatException {
         char[][][] map = new char[levels][rows][cols];
 
+        // fill everything as open by default
         for (int l = 0; l < levels; l++) {
             for (int r = 0; r < rows; r++) {
                 for (int c = 0; c < cols; c++) {
-                    map[l][r][c] = OPEN;
+                    map[l][r][c] = '.';
                 }
             }
         }
@@ -273,13 +271,14 @@ public class p1 {
         }
 
         char ch = token.charAt(0);
-        if (ch != START && ch != GOAL && ch != WALL && ch != OPEN && ch != WALKWAY) {
+        if (ch != 'W' && ch != '$' && ch != '@' && ch != '.' && ch != '|') {
             throw new IllegalMapCharacterException("Illegal map character.");
         }
 
         return ch;
     }
 
+    // scans the map and returns the first cell that matches the target
     private static Pos findFirst(char[][][] map, char target) {
         for (int l = 0; l < map.length; l++) {
             for (int r = 0; r < map[l].length; r++) {
@@ -307,20 +306,21 @@ public class p1 {
         visited[start.level][start.row][start.col] = true;
 
         while (!frontier.isEmpty()) {
-            // queue uses removeFirst (BFS), stack uses removeLast (DFS)
+            // queue (BFS) takes from front, stack (DFS) takes from back
             Pos cur = (useQueue || useOpt) ? frontier.removeFirst() : frontier.removeLast();
 
             if (samePos(cur, goal)) {
                 return buildPath(parent, cur);
             }
 
+            // check north, south, west, east
             tryAdd(map, visited, parent, frontier, cur, cur.level, cur.row - 1, cur.col);
             tryAdd(map, visited, parent, frontier, cur, cur.level, cur.row + 1, cur.col);
             tryAdd(map, visited, parent, frontier, cur, cur.level, cur.row, cur.col - 1);
             tryAdd(map, visited, parent, frontier, cur, cur.level, cur.row, cur.col + 1);
 
-            // walkway connects to the same row/col on every other level
-            if (map[cur.level][cur.row][cur.col] == WALKWAY) {
+            // if on a walkway, try moving to other levels
+            if (map[cur.level][cur.row][cur.col] == '|') {
                 addWalkwayTransitions(map, visited, parent, frontier, cur);
             }
         }
@@ -328,6 +328,7 @@ public class p1 {
         return null;
     }
 
+    // walkway connects to same row/col on every other level
     private static void addWalkwayTransitions(char[][][] map, boolean[][][] visited,
             Pos[][][] parent, Deque<Pos> frontier, Pos cur) {
         for (int otherLevel = 0; otherLevel < map.length; otherLevel++) {
@@ -335,7 +336,7 @@ public class p1 {
                 continue;
             }
 
-            if (map[otherLevel][cur.row][cur.col] == WALL) {
+            if (map[otherLevel][cur.row][cur.col] == '@') {
                 continue;
             }
 
@@ -359,7 +360,7 @@ public class p1 {
             return;
         }
 
-        if (map[level][row][col] == WALL) {
+        if (map[level][row][col] == '@') {
             return;
         }
 
@@ -374,6 +375,7 @@ public class p1 {
         return a.level == b.level && a.row == b.row && a.col == b.col;
     }
 
+    // traces back through parent array to build path from start to goal
     private static List<Pos> buildPath(Pos[][][] parent, Pos end) {
         List<Pos> path = new ArrayList<>();
         Pos cur = end;
@@ -387,12 +389,13 @@ public class p1 {
         return path;
     }
 
+    // marks the path with '+' on the map
     private static void drawPath(char[][][] map, List<Pos> path) {
         for (int i = 1; i < path.size() - 1; i++) {
             Pos p = path.get(i);
             char ch = map[p.level][p.row][p.col];
-            if (ch == OPEN || ch == WALKWAY) {
-                map[p.level][p.row][p.col] = PATH;
+            if (ch == '.' || ch == '|') {
+                map[p.level][p.row][p.col] = '+';
             }
         }
     }
@@ -415,7 +418,7 @@ public class p1 {
         }
     }
 
-    // prints the path as coordinates: + row col level
+    // prints path as coordinates: + row col level
     private static void printCoordinates(List<Pos> path) {
         for (Pos p : path) {
             System.out.println("+ " + p.row + " " + p.col + " " + p.level);
